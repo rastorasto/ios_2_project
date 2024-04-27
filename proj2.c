@@ -37,7 +37,7 @@ typedef struct shared{
 } shr;
 
 stop_sem *stops_sem;
-shr shared;
+shr *shared;
 
 
 int sem_mnau(sem_t *sem){
@@ -53,7 +53,7 @@ void skier(pid_t id, params par){
 
     (stops_sem[stop].stop)++; // Increment the number of skiers at the stop
     printf("L %d: arrived to %d\n", id, stop);
-    printf("zzBOARDING: %d , Z1SEM: %d , Z1CO: %d , Z2SEN: %d , Z2CO: %d \n", sem_mnau(shared.boarding), sem_mnau(stops_sem[1].sem), stops_sem[1].stop,sem_mnau(stops_sem[2].sem), stops_sem[2].stop);
+    printf("zzBOARDING: %d , Z1SEM: %d , Z1CO: %d , Z2SEN: %d , Z2CO: %d \n", sem_mnau(shared->boarding), sem_mnau(stops_sem[1].sem), stops_sem[1].stop,sem_mnau(stops_sem[2].sem), stops_sem[2].stop);
     sem_wait(stops_sem[stop].sem); // Wait for the bus to arrive
     printf("bus prisiel\n");
     if(shared->cap_available == 0){
@@ -72,13 +72,13 @@ void skier(pid_t id, params par){
 
     sem_wait(shared->finish); // If at finish go to ski :)
     printf("L %d: going to ski\n", id);
-    (*shared->skiers_left)--; // Decrement the number of skiers left
+    (shared->skiers_left)--; // Decrement the number of skiers left
     (shared->cap_available)++; // Free the seat
 }
 
 void skibus(params par){
     printf("BUS: started\n");
-    while(*shared->skiers_left > 0){
+    while(shared->skiers_left > 0){
         usleep(par.stops_time);
         for(int zastavka=1; zastavka<par.stops+1; zastavka++){
             printf("A: BUS: arrival to %d\n", zastavka);
@@ -153,8 +153,8 @@ void map_and_init(params param) {
     // Initialize other components
     shared->skiers_left = malloc(sizeof(int));
     shared->cap_available = malloc(sizeof(int));
-    *shared->skiers_left = param.skiers;
-    *shared->cap_available = param.capacity;
+    shared->skiers_left = param.skiers;
+    shared->cap_available = param.capacity;
 
     // Initialize semaphores
     shared->boarding = malloc(sizeof(sem_t));
