@@ -4,7 +4,7 @@
 #  Created: 26.04.2024
 #
 CC = gcc
-CFLAGS = -std=gnu99 -Wall -Wextra -Werror -pedantic
+CFLAGS = -g -std=gnu99 -Wall -Wextra -Werror -pedantic
 
 all: proj2
 
