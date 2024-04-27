@@ -123,6 +123,7 @@ void map_and_init(params param){
     
     for(int i=0; i<param.stops; i++){
         bus_stops[i] = mmap(NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+        bus_stops[i] = 0;
     }
 
     sem_init(cap_available, 1, param.capacity);
