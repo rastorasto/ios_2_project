@@ -8,11 +8,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/wait.h>
-#include <sys/ipc.h>
 #include <sys/shm.h>
 #include <time.h>
 #include <unistd.h>
 #include <semaphore.h>
+#include <fcntl.h>
+#include <sys/mman.h>
 
 typedef struct parameters
 {
@@ -23,55 +24,53 @@ typedef struct parameters
     int stops_time;
 }params;
 
-typedef struct shared
-{
-    int curr_stop;
-    int skiers_left;
-    int bus_capacity;
-}shr;
-
+int *curr_stop;
+int *skiers_left;
+sem_t *cap_available;
 sem_t *mutex;
 sem_t *bus_arrived;
-sem_t *boarded;
 
-void skier(pid_t id, params par, shr *shared){
+
+void skier(pid_t id, params par){
     printf("L %d: started\n", id);
     srand(time(NULL)*id);
     usleep((rand() % par.waiting_time));
     int stop = rand() % par.stops+1;
     //printf("%d\n", stop);
     printf("L %d: arrived to %d\n", id, stop);
-    while(shared->curr_stop != stop){
-        usleep(1);
+    while(*curr_stop != stop){
+        sem_wait(bus_arrived);
     }
     sem_wait(mutex);
-    shared->skiers_left--;
-    shared->bus_capacity++;
+    skiers_left--;
+    sem_post(cap_available);
     sem_post(mutex);
-    sem_post(boarded);
+    sem_post(cap_available);
     printf("L %d: boarding\n", id);
     sem_wait(mutex);
-    shared->bus_capacity--;
+    sem_post(cap_available); 
     printf("L %d: going to ski\n", id);
     sem_post(mutex);
+    sem_post(cap_available);
 }
 
-void skibus(params par, shr *shared){
+void skibus(params par){
     printf("BUS: started\n");
-    while(shared->skiers_left > 0){
+    while(*skiers_left > 0){
         usleep(par.stops_time);
         for(int zastavka=1; zastavka<par.stops+1; zastavka++){
-            printf("A: BUS: arrival to %d\n", zastavka);
-            shared->curr_stop = zastavka;
+
+            *curr_stop = zastavka;
+            printf("A: BUS: arrival to %d curr_stop %d\n", zastavka, *curr_stop);
             sem_post(bus_arrived);
 
-            while(shared->bus_capacity < par.capacity){
-                   //  printf("cyklus"); //loop
-                sem_wait(boarded);
+            while(sem_wait(cap_available)){
+                int sem_value = sem_getvalue(cap_available, &sem_value);
+                printf("cap_available %d\n", sem_value);
             }
 
-            printf("A: BUS: leaving %d\n",zastavka);
-            //shared->curr_stop = 0;
+            printf("A: BUS: leaving %d currstop %d\n",zastavka, *curr_stop);
+            *curr_stop = 0;
             usleep(par.stops_time);
         }
         // tu nieco ze dosiel do ciela tak jebne semafor aby mohli dat lyzovat
@@ -114,80 +113,74 @@ struct parameters arg_parsing(int argc, char **argv){
     return param;
 }
 
-int main(int argc, char **argv){
-    //setbuf(stdout, NULL);
+void map_and_init(params param){
+    curr_stop = mmap(NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    skiers_left = mmap(NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    cap_available = mmap(NULL, sizeof(sem_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    mutex = mmap(NULL, sizeof(sem_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    bus_arrived =mmap(NULL, sizeof(sem_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    cap_available = mmap(NULL, sizeof(sem_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 
-    // Parsing arguments
-    params param = arg_parsing(argc, argv);
-
-    // Shared memory allocation
-    int shared_memory_id = shmget(IPC_PRIVATE, sizeof(shr), IPC_CREAT | 0666);
-    if(shared_memory_id == -1){
-        fprintf(stderr, "Error: Shared memory allocation failed\n");
-        return 1;
-    }
-
-    // Attaching shared memory
-    shr *shared_memory = (shr *)shmat(shared_memory_id, NULL, 0);
-    if(shared_memory == (void *)-1){
-        fprintf(stderr, "Error: Shared memory allocation failed\n");
-        return 1;
-    }
-
-    mutex = sem_open("/xuhliar00_mutex", O_CREAT | O_EXCL, 0666, 1);
-    bus_arrived = sem_open("/xuhliar00_bus_arrived", O_CREAT | O_EXCL, 0666, 0);
-    boarded = sem_open("/xuhliar00_boarded", O_CREAT | O_EXCL, 0666, 0);
+    sem_init(cap_available, 1, param.capacity);
+    sem_init(mutex, 1, 1);
+    sem_init(bus_arrived, 1, 0);
 
     // Initialization of shared memory
-    shared_memory->curr_stop = 0;
-    shared_memory->skiers_left = param.skiers;
-    
+    *curr_stop = 0;
+    *skiers_left = param.skiers;
+}
+int fork_gen(params param){
     // Forking skibus
     pid_t skibus_pid = fork();
     if(skibus_pid == 0){
-        skibus(param, shared_memory);
+        skibus(param);
         return 0;
     } else if(skibus_pid < 0){
         fprintf(stderr, "Error: Fork failed\n");
         return 1;
     }
-
     // Forking skiers
     for(int i = 1; i < param.skiers+1; i++){
         pid_t skier_pid = fork();
         if(skier_pid == 0){
-            skier(i, param, shared_memory);
+            skier(i, param);
             return 0; // not sure about this
         } else if(skier_pid < 0){
             fprintf(stderr, "Error: Fork failed\n");
             return 1;
         }
     }
-    
+    return 0;
+}
+void cleanup(){
+    // Cleanup: Destroy semaphores
+    sem_destroy(cap_available);
+    sem_destroy(mutex);
+    sem_destroy(bus_arrived);
 
+    // Unmap shared memory
+    munmap(curr_stop, sizeof(int));
+    munmap(skiers_left, sizeof(int));
+    munmap(cap_available, sizeof(sem_t));
+    munmap(mutex, sizeof(sem_t));
+    munmap(bus_arrived, sizeof(sem_t));
+}
+
+int main(int argc, char **argv){
+    //setbuf(stdout, NULL);
+
+    // Parsing arguments
+    params param = arg_parsing(argc, argv);
+
+    map_and_init(param);
+
+    if(fork_gen(param)){
+        return 1;
+    }
+    
     while(wait(NULL) > 0);
 
-    // Detaching shared memory
-    if(shmdt(shared_memory) == -1){
-        fprintf(stderr, "Error: Detaching shared memory failed\n");
-        return 1;
-    }
-
-    // Deleting shared memory
-    if(shmctl(shared_memory_id, IPC_RMID, NULL) == -1){
-        fprintf(stderr, "Error: Deleting shared memory failed\n");
-        return 1;
-    }
-
-    // Closing and unlinking semaphores
-    sem_close(mutex);
-    sem_unlink("/xuhliar00_mutex");
-    sem_close(bus_arrived);
-    sem_unlink("/xuhliar00_bus_arrived");
-    sem_close(boarded);
-    sem_unlink("/xuhliar00_boarded");
-
-
+    cleanup();
 
     return 0;
 }
