@@ -26,9 +26,12 @@ typedef struct parameters
 
 int *curr_stop;
 int *skiers_left;
+int **bus_stops;
 sem_t *cap_available;
 sem_t *mutex;
-sem_t *bus_arrived;
+sem_t *boarding;
+semt_t *all_aboard;
+
 
 
 void skier(pid_t id, params par){
@@ -36,17 +39,14 @@ void skier(pid_t id, params par){
     srand(time(NULL)*id);
     usleep((rand() % par.waiting_time));
     int stop = rand() % par.stops+1;
-    //printf("%d\n", stop);
+
+
     printf("L %d: arrived to %d\n", id, stop);
-    while(*curr_stop != stop){
-        sem_wait(bus_arrived);
+
+    while(!(sem_getvalue(boarding) && *curr_stop != stop)){
     }
-    sem_wait(mutex);
-    skiers_left--;
-    sem_post(cap_available);
-    sem_post(mutex);
-    sem_post(cap_available);
     printf("L %d: boarding\n", id);
+    skiers_left--;
     sem_wait(mutex);
     sem_post(cap_available); 
     printf("L %d: going to ski\n", id);
@@ -56,25 +56,25 @@ void skier(pid_t id, params par){
 
 void skibus(params par){
     printf("BUS: started\n");
-    while(*skiers_left > 0){
+    int cap_available;
+    while(*skiers_left){
         usleep(par.stops_time);
         for(int zastavka=1; zastavka<par.stops+1; zastavka++){
 
             *curr_stop = zastavka;
             printf("A: BUS: arrival to %d curr_stop %d\n", zastavka, *curr_stop);
-            sem_post(bus_arrived);
+            sem_post(boarding);
+            do{
 
-            while(sem_wait(cap_available)){
-                int sem_value = sem_getvalue(cap_available, &sem_value);
-                printf("cap_available %d\n", sem_value);
-            }
+            while ((cap_available = sem_getvalue(cap_available, &sem_value) != par.capacity))
+            printf("cap_available %d\n", sem_value);
 
             printf("A: BUS: leaving %d currstop %d\n",zastavka, *curr_stop);
             *curr_stop = 0;
             usleep(par.stops_time);
         }
         // tu nieco ze dosiel do ciela tak jebne semafor aby mohli dat lyzovat
-
+        }
     }
     printf("A: BUS: finish\n");
 }
@@ -118,12 +118,17 @@ void map_and_init(params param){
     skiers_left = mmap(NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     cap_available = mmap(NULL, sizeof(sem_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     mutex = mmap(NULL, sizeof(sem_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-    bus_arrived =mmap(NULL, sizeof(sem_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-    cap_available = mmap(NULL, sizeof(sem_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    boarding =mmap(NULL, sizeof(sem_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    all_aboard = mmap(NULL, sizeof(sem_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    
+    for(int i=0; i<param.stops; i++){
+        bus_stops[i] = mmap(NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    }
 
     sem_init(cap_available, 1, param.capacity);
     sem_init(mutex, 1, 1);
-    sem_init(bus_arrived, 1, 0);
+    sem_init(boarding, 1, 0);
+    sem_init(all_aboard, 1, 0);
 
     // Initialization of shared memory
     *curr_stop = 0;
@@ -156,14 +161,19 @@ void cleanup(){
     // Cleanup: Destroy semaphores
     sem_destroy(cap_available);
     sem_destroy(mutex);
-    sem_destroy(bus_arrived);
+    sem_destroy(boarding);
+    for(int i=0; i<param.stops; i++){
+        sem_destroy(bus_stops[i]);
+      //  munmap(bus_stops[i], sizeof(sem_t));
+    }
 
     // Unmap shared memory
     munmap(curr_stop, sizeof(int));
     munmap(skiers_left, sizeof(int));
     munmap(cap_available, sizeof(sem_t));
     munmap(mutex, sizeof(sem_t));
-    munmap(bus_arrived, sizeof(sem_t));
+    munmap(boarding, sizeof(sem_t));
+    munmap(all_aboard, sizeof(sem_t));
 }
 
 int main(int argc, char **argv){
