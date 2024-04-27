@@ -29,7 +29,7 @@ int *skiers_left;
 int **bus_stops;
 sem_t *cap_available;
 sem_t *mutex;
-sem_t *boarding;
+sem_t **boarding;
 semt_t *all_aboard;
 
 
@@ -43,14 +43,13 @@ void skier(pid_t id, params par){
 
     printf("L %d: arrived to %d\n", id, stop);
 
-    while(!(sem_getvalue(boarding) && *curr_stop != stop)){
-    }
+    sem_wait(boarding[stop]);
+
     printf("L %d: boarding\n", id);
     skiers_left--;
+    sem_wait(cap_available);
     sem_wait(mutex);
-    sem_post(cap_available); 
     printf("L %d: going to ski\n", id);
-    sem_post(mutex);
     sem_post(cap_available);
 }
 
@@ -63,10 +62,8 @@ void skibus(params par){
 
             *curr_stop = zastavka;
             printf("A: BUS: arrival to %d curr_stop %d\n", zastavka, *curr_stop);
-            sem_post(boarding);
-            do{
+            sem_post(boarding[zastavka]);
 
-            while ((cap_available = sem_getvalue(cap_available, &sem_value) != par.capacity))
             printf("cap_available %d\n", sem_value);
 
             printf("A: BUS: leaving %d currstop %d\n",zastavka, *curr_stop);
@@ -123,6 +120,8 @@ void map_and_init(params param){
     
     for(int i=0; i<param.stops; i++){
         bus_stops[i] = mmap(NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+        boarding[i] = mmap(NULL, sizeof(sem_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+        sem_init(boarding[i], 1, 0);
         bus_stops[i] = 0;
     }
 
@@ -164,8 +163,8 @@ void cleanup(){
     sem_destroy(mutex);
     sem_destroy(boarding);
     for(int i=0; i<param.stops; i++){
-        sem_destroy(bus_stops[i]);
-      //  munmap(bus_stops[i], sizeof(sem_t));
+        sem_destroy(boarding[i]);
+        munmap(boarding[i], sizeof(sem_t));
     }
 
     // Unmap shared memory
