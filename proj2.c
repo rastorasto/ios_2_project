@@ -26,13 +26,17 @@ typedef struct parameters
 
 int *curr_stop;
 int *skiers_left;
-int **bus_stops;
-sem_t **boarding;
+sem_t *boarding;
 sem_t *cap_available;
 sem_t *finish;
 sem_t *all_aboard;
 
+typedef struct stop_sem{
+    sem_t *sem;
+    int stop;
+} stopsm;
 
+stopsm *stops_sem;
 
 void skier(pid_t id, params par){
     printf("L %d: started\n", id);
@@ -40,15 +44,18 @@ void skier(pid_t id, params par){
     usleep((rand() % par.waiting_time));
     int stop = rand() % par.stops+1;
 
-    bus_stops[stop]++;
+    stops_sem[stop].stop++;
     printf("L %d: arrived to %d\n", id, stop);
 
-    sem_wait(boarding[stop]);
+    sem_wait(boarding);
 
     printf("L %d: boarding\n", id);
     skiers_left--;
-    bus_stops[stop]--;
-    sem_wait(cap_available);
+    stops_sem[stop].stop--;
+    if(stops_sem[stop].stop == 0){
+        sem_post(boarding);
+    }
+
     sem_wait(finish);
     printf("L %d: going to ski\n", id);
     sem_post(cap_available);
@@ -56,21 +63,18 @@ void skier(pid_t id, params par){
 
 void skibus(params par){
     printf("BUS: started\n");
-    int cap_available;
     while(*skiers_left){
         usleep(par.stops_time);
         for(int zastavka=1; zastavka<par.stops+1; zastavka++){
             *curr_stop = zastavka;
             printf("A: BUS: arrival to %d\n", zastavka);
-            while((*bus_stops[zastavka] > 0) && (sem_value(cap_available) != 0)){
-                sem_post(boarding[zastavka]);
+            if(stops_sem[zastavka].stop > 0){
+                sem_post(stops_sem[zastavka].sem);
             }
             printf("A: BUS: leaving %d\n",zastavka);
             usleep(par.stops_time);
         }
-        while(sem_value(cap_available) != par.capacity){
-            sem_post(finish);
-        }
+        sem_post(finish);
     }
     printf("A: BUS: finish\n");
 }
@@ -124,10 +128,7 @@ void map_and_init(params param){
     all_aboard = mmap(NULL, sizeof(sem_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     
     for(int i=0; i<param.stops+1; i++){
-        bus_stops[i] = mmap(NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-        bus_stops[i] = 0;
-        boarding[i] = mmap(NULL, sizeof(sem_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-        sem_init(boarding[i], 1, 0);
+        sem_init(stops_sem[i].sem, 1, 0);
     }
 
     sem_init(cap_available, 1, param.capacity);
@@ -167,10 +168,8 @@ void cleanup(params param){
     sem_destroy(finish);
     sem_destroy(boarding);
     for(int i=0; i<param.stops+1; i++){
-        munmap(bus_stops[i], sizeof(int));
-      //  munmap(bus_stops[i], sizeof(sem_t));
-        sem_destroy(boarding[i]);
-        munmap(boarding[i], sizeof(sem_t));
+        sem_destroy(stops_sem[i].sem);
+        munmap(stops_sem[i].sem, sizeof(sem_t));
     }
 
     // Unmap shared memory
@@ -179,6 +178,7 @@ void cleanup(params param){
     munmap(cap_available, sizeof(sem_t));
     munmap(finish, sizeof(sem_t));
     munmap(all_aboard, sizeof(sem_t));
+    munmap(boarding, sizeof(sem_t));
 }
 
 int main(int argc, char **argv){
