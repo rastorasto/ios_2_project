@@ -24,32 +24,36 @@ typedef struct parameters{
 }params;
 
 typedef struct stop_sem{
-    sem_t *sem;
+    sem_t sem;
     int stop;
 } stop_sem;
 
 typedef struct shared{
-    int *skiers_left;
-    int *cap_available;
-    sem_t *boarding;
-    sem_t *finish;
-    // stop_sem *stops_sem;
+    int skiers_left;
+    int cap_available;
+    sem_t boarding;
+    sem_t finish;
+    // stop_sem stops_sem;
 } shr;
 
 stop_sem *stops_sem;
-shr *shared;
+shr shared;
 
-//printf("BOARDING: %d , ")
 
+int sem_mnau(sem_t *sem){
+    int val;
+    sem_getvalue(sem, &val);
+    return val;
+}
 void skier(pid_t id, params par){
     printf("L %d: started\n", id);
     srand(time(NULL)*id);
     usleep((rand() % par.waiting_time));
-    int stop = rand() % par.stops+1;
+    int stop = rand() % par.stops+2;
 
-    stops_sem[stop].stop++; // Increment the number of skiers at the stop
+    (stops_sem[stop].stop)++; // Increment the number of skiers at the stop
     printf("L %d: arrived to %d\n", id, stop);
-
+    printf("zzBOARDING: %d , Z1SEM: %d , Z1CO: %d , Z2SEN: %d , Z2CO: %d \n", sem_mnau(shared.boarding), sem_mnau(stops_sem[1].sem), stops_sem[1].stop,sem_mnau(stops_sem[2].sem), stops_sem[2].stop);
     sem_wait(stops_sem[stop].sem); // Wait for the bus to arrive
     printf("bus prisiel\n");
     if(shared->cap_available == 0){
@@ -92,12 +96,6 @@ void skibus(params par){
         sem_post(shared->finish);
     }
     printf("A: BUS: finish\n");
-}
-
-int sem_stat(sem_t *sem){
-    int val;
-    sem_getvalue(sem, &val);
-    return val;
 }
 
 
@@ -180,7 +178,9 @@ void fork_gen(params param){
         pid_t skier_pid = fork();
         if(skier_pid == 0){
             skier(i, param);
-            exit(0); // not sure about this
+            printf("lyzar skonci\n");
+            fprintf(stderr, "ID1: %d\n", getpid());
+            exit(0);
         } else if(skier_pid < 0){
             fprintf(stderr, "Error: Fork failed\n");
             exit(1);
@@ -203,6 +203,7 @@ void cleanup(params param){
 
 int main(int argc, char **argv){
     setbuf(stdout, NULL);
+    setbuf(stderr, NULL);
 
     // Parsing arguments
     params param = arg_parsing(argc, argv);
