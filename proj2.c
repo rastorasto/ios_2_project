@@ -15,8 +15,7 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 
-typedef struct parameters
-{
+typedef struct parameters{
     int skiers;
     int stops;
     int capacity;
@@ -34,10 +33,13 @@ typedef struct shared{
     int *cap_available;
     sem_t *boarding;
     sem_t *finish;
-    stop_sem *stops_sem;
+    // stop_sem *stops_sem;
 } shr;
 
+stop_sem *stops_sem;
 shr *shared;
+
+//printf("BOARDING: %d , ")
 
 void skier(pid_t id, params par){
     printf("L %d: started\n", id);
@@ -45,22 +47,22 @@ void skier(pid_t id, params par){
     usleep((rand() % par.waiting_time));
     int stop = rand() % par.stops+1;
 
-    shared->stops_sem[stop].stop++; // Increment the number of skiers at the stop
+    stops_sem[stop].stop++; // Increment the number of skiers at the stop
     printf("L %d: arrived to %d\n", id, stop);
 
-    sem_wait(shared->stops_sem[stop].sem); // Wait for the bus to arrive
-
+    sem_wait(stops_sem[stop].sem); // Wait for the bus to arrive
+    printf("bus prisiel\n");
     if(shared->cap_available == 0){
         sem_post(shared->boarding); // If the bus is full, signal the bus to leave
     }
 
     printf("L %d: boarding\n", id);
     (shared->cap_available)--;    // Remove one seat from the capacity
-    shared->stops_sem[stop].stop--; // Decrement the number of skiers at the stop
-
-    sem_post(shared->stops_sem[stop].sem);         // Allows another skier to board
-
-    if(shared->stops_sem[stop].stop == 0){ // If the last skier at the stop
+    stops_sem[stop].stop--; // Decrement the number of skiers at the stop
+    printf("pusti dalsieho nastupit\n");
+    sem_post(stops_sem[stop].sem);         // Allows another skier to board
+    if(stops_sem[stop].stop == 0){ // If the last skier at the stop
+        printf("nech ide bus do pici\n");
         sem_post(shared->boarding); // Signal the bus to leave
     }
 
@@ -76,10 +78,14 @@ void skibus(params par){
         usleep(par.stops_time);
         for(int zastavka=1; zastavka<par.stops+1; zastavka++){
             printf("A: BUS: arrival to %d\n", zastavka);
-            if(shared->stops_sem[zastavka].stop > 0){
-                sem_post(shared->stops_sem[zastavka].sem);
+            if(stops_sem[zastavka].stop > 0){
+                printf("na zastavke cakaju chlopi\n");
+                sem_post(stops_sem[zastavka].sem);
+                printf("bus caka kym nastupi posledny chlop\n");
+                sem_wait(shared->boarding);
+            }else {
+                printf("na zastavke nikto necaka\n");
             }
-            sem_wait(shared->boarding);
             printf("A: BUS: leaving %d\n",zastavka);
             usleep(par.stops_time);
         }
@@ -87,6 +93,13 @@ void skibus(params par){
     }
     printf("A: BUS: finish\n");
 }
+
+int sem_stat(sem_t *sem){
+    int val;
+    sem_getvalue(sem, &val);
+    return val;
+}
+
 
 struct parameters arg_parsing(int argc, char **argv){
     if(argc != 6){
@@ -124,7 +137,8 @@ struct parameters arg_parsing(int argc, char **argv){
 
 void map_and_init(params param) {
     // Allocate memory for the entire shr structure
-    shared = mmap(NULL, sizeof(shr) + sizeof(stop_sem) * (param.stops + 1), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    shared = mmap(NULL, sizeof(shr), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    stops_sem = mmap(NULL, sizeof(stop_sem) * (param.stops+1), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     if (shared == MAP_FAILED) {
         perror("mmap");
         exit(1);
@@ -134,8 +148,8 @@ void map_and_init(params param) {
     for (int i = 0; i < param.stops; i++) {
         sem_t sem;
         sem_init(&sem, 1, 0); // Initialize the semaphore
-        shared->stops_sem[i].sem = &sem;
-        shared->stops_sem[i].stop = 0;
+        stops_sem[i].sem = &sem;
+        stops_sem[i].stop = 0;
     }
 
     // Initialize other components
@@ -151,56 +165,55 @@ void map_and_init(params param) {
     sem_init(shared->finish, 1, 0);
 }
 
-int fork_gen(params param){
+void fork_gen(params param){
     // Forking skibus
     pid_t skibus_pid = fork();
     if(skibus_pid == 0){
         skibus(param);
-        return 0;
+        exit(0);
     } else if(skibus_pid < 0){
         fprintf(stderr, "Error: Fork failed\n");
-        return 1;
+        exit(1);
     }
     // Forking skiers
     for(int i = 1; i < param.skiers+1; i++){
         pid_t skier_pid = fork();
         if(skier_pid == 0){
             skier(i, param);
-            return 0; // not sure about this
+            exit(0); // not sure about this
         } else if(skier_pid < 0){
             fprintf(stderr, "Error: Fork failed\n");
-            return 1;
+            exit(1);
         }
     }
-    return 0;
 }
 void cleanup(params param){
     // Cleanup: Destroy semaphores
     sem_destroy(shared->finish);
     sem_destroy(shared->boarding);
     for(int i=1; i<param.stops+1; i++){
-        sem_destroy(shared->stops_sem[i].sem);
+        sem_destroy(stops_sem[i].sem);
     }
 
     // Unmap shared memory
     munmap(shared, sizeof(shared));
+    munmap(stops_sem, sizeof(stop_sem) * (param.stops+1));
     
 }
 
 int main(int argc, char **argv){
-    //setbuf(stdout, NULL);
+    setbuf(stdout, NULL);
 
     // Parsing arguments
     params param = arg_parsing(argc, argv);
 
     map_and_init(param);
 
-    if(fork_gen(param)){
-        return 1;
-    }
-    
-    while(wait(NULL) > 0);
+    fork_gen(param);
 
+    while(wait(NULL) > 0);
+    fprintf(stderr, "ID2: %d\n", getpid());
+    fprintf(stderr, "Error: pico failed\n");
     cleanup(param);
 
     return 0;
