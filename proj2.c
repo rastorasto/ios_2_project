@@ -36,9 +36,10 @@ sem_t *boarded;
 
 void skier(pid_t id, params par, shr *shared){
     printf("L %d: started\n", id);
-    srand(time(NULL));
-    usleep(rand() % par.waiting_time);
+    srand(time(NULL)*id);
+    usleep((rand() % par.waiting_time));
     int stop = rand() % par.stops+1;
+    //printf("%d\n", stop);
     printf("L %d: arrived to %d", id, stop);
     while(shared->curr_stop != stop){
         usleep(1);
@@ -47,40 +48,37 @@ void skier(pid_t id, params par, shr *shared){
     shared->skiers_left--;
     shared->bus_capacity++;
     sem_post(mutex);
-    sem_wait(boarded);
+    sem_post(boarded);
     printf("L %d: boarding\n", id);
     sem_wait(mutex);
     shared->bus_capacity--;
     printf("L %d: going to ski\n", id);
-
-
+    sem_post(mutex);
 }
 
 void skibus(params par, shr *shared){
     printf("BUS: started\n");
     while(shared->skiers_left > 0){
+        usleep(par.stops_time);
         for(int zastavka=1; zastavka<par.stops+1; zastavka++){
             printf("A: BUS: arrival to %d\n", zastavka);
             shared->curr_stop = zastavka;
             sem_post(bus_arrived);
 
             while(shared->bus_capacity < par.capacity){
-                    //    printf("cyklus"); tu sa to looplo no
-                sem_post(boarded);
+                   //  printf("cyklus"); //loop
+                sem_wait(boarded);
             }
 
             printf("A: BUS: leaving %d\n",zastavka);
 
             usleep(par.stops_time);
         }
+        // tu nieco ze dosiel do ciela tak jebne semafor aby mohli dat lyzovat
+
     }
     printf("A: BUS: finish\n");
-
 }
-
-// void stop(int id){
-
-// }
 
 struct parameters arg_parsing(int argc, char **argv){
     if(argc != 6){
@@ -117,7 +115,7 @@ struct parameters arg_parsing(int argc, char **argv){
 }
 
 int main(int argc, char **argv){
-
+    //setbuf(stdout, NULL);
     // Parsing arguments
     params param = arg_parsing(argc, argv);
 
@@ -142,7 +140,7 @@ int main(int argc, char **argv){
     // Initialization of shared memory
     shared_memory->curr_stop = 0;
     shared_memory->skiers_left = param.skiers;
-
+    
     // Forking skibus
     pid_t skibus_pid = fork();
     if(skibus_pid == 0){
@@ -152,7 +150,7 @@ int main(int argc, char **argv){
         fprintf(stderr, "Error: Fork failed\n");
         return 1;
     }
-    
+
     // Forking skiers
     for(int i = 1; i < param.skiers+1; i++){
         pid_t skier_pid = fork();
@@ -165,6 +163,7 @@ int main(int argc, char **argv){
         }
     }
     
+
     while(wait(NULL) > 0);
 
     // Detaching shared memory
