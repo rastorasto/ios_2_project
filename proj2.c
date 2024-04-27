@@ -29,13 +29,15 @@ struct stop_sem{
     int stop;
 };
 
-typdef struct shared{
+typedef struct shared{
+    int *skiers_left;
     sem_t *boarding;
     sem_t *cap_available;
     sem_t *finish;
     struct stop_sem *stops_sem;
-} shared;
+} shr;
 
+shr *shared;
 
 void skier(pid_t id, params par){
     printf("L %d: started\n", id);
@@ -43,37 +45,39 @@ void skier(pid_t id, params par){
     usleep((rand() % par.waiting_time));
     int stop = rand() % par.stops+1;
 
-    stops_sem[stop].stop++;
+    shared->stops_sem[stop].stop++; // Increment the number of skiers at the stop
     printf("L %d: arrived to %d\n", id, stop);
 
-    sem_wait(boarding);
+    sem_wait(shared->stops_sem[stop].sem); // Wait for the bus to arrive
 
     printf("L %d: boarding\n", id);
-    skiers_left--;
-    stops_sem[stop].stop--;
-    if(stops_sem[stop].stop == 0){
-        sem_post(boarding);
+    sem_wait(shared->cap_available);    // Remove one seat from the capacity
+    shared->stops_sem[stop].stop--; // Decrement the number of skiers at the stop
+
+    sem_post(shared->boarding);         // Allows another skier to board
+
+    if(shared->stops_sem[stop].stop == 0){ // If the last skier at the stop
+        sem_post(shared->stops_sem[stop].sem); // Signal the bus to leave
     }
 
-    sem_wait(finish);
+    sem_wait(shared->finish); // If at finish go to ski :)
     printf("L %d: going to ski\n", id);
-    sem_post(cap_available);
+    sem_post(shared->cap_available); // Free the seat
 }
 
 void skibus(params par){
     printf("BUS: started\n");
-    while(*skiers_left){
+    while(shared->skiers_left > 0){
         usleep(par.stops_time);
         for(int zastavka=1; zastavka<par.stops+1; zastavka++){
-            *curr_stop = zastavka;
             printf("A: BUS: arrival to %d\n", zastavka);
-            if(stops_sem[zastavka].stop > 0){
-                sem_post(stops_sem[zastavka].sem);
+            if(shared->stops_sem[zastavka].stop > 0){
+                sem_post(shared->stops_sem[zastavka].sem);
             }
             printf("A: BUS: leaving %d\n",zastavka);
             usleep(par.stops_time);
         }
-        sem_post(finish);
+        sem_post(shared->finish);
     }
     printf("A: BUS: finish\n");
 }
@@ -113,27 +117,18 @@ struct parameters arg_parsing(int argc, char **argv){
 }
 
 void map_and_init(params param){
-    // curr_stop = mmap(NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-    // skiers_left = mmap(NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-    // cap_available = mmap(NULL, sizeof(sem_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-    // finish = mmap(NULL, sizeof(sem_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-    // boarding =mmap(NULL, sizeof(sem_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+
     shared = mmap(NULL, sizeof(shared), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-    
-    //stops_sem = mmap(NULL, (param.stops+1) * sizeof(stopsm), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 
     for(int i=1; i<param.stops+1; i++){
-        sem_init(shared.stops_sem[i].sem, 1, 0);
-        stops_sem[i].stop = 0;
+        sem_init(shared->stops_sem[i].sem, 1, 0);
+        shared->stops_sem[i].stop = 0;
 
     }
-
-    sem_init(cap_available, 1, param.capacity);
-    sem_init(finish, 1, 1);
-
-    // Initialization of shared memory
-    *curr_stop = 0;
-    *skiers_left = param.skiers;
+    shared->skiers_left = param.skiers;
+    sem_init(shared->boarding, 1, 0);
+    sem_init(shared->cap_available, 1, param.capacity);
+    sem_init(shared->finish, 1, 1);
 }
 int fork_gen(params param){
     // Forking skibus
