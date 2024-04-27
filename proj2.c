@@ -27,10 +27,10 @@ typedef struct parameters
 int *curr_stop;
 int *skiers_left;
 int **bus_stops;
-sem_t *cap_available;
-sem_t *mutex;
 sem_t **boarding;
-semt_t *all_aboard;
+sem_t *cap_available;
+sem_t *finish;
+sem_t *all_aboard;
 
 
 
@@ -40,15 +40,16 @@ void skier(pid_t id, params par){
     usleep((rand() % par.waiting_time));
     int stop = rand() % par.stops+1;
 
-
+    bus_stops[stop]++;
     printf("L %d: arrived to %d\n", id, stop);
 
     sem_wait(boarding[stop]);
 
     printf("L %d: boarding\n", id);
     skiers_left--;
+    bus_stops[stop]--;
     sem_wait(cap_available);
-    sem_wait(mutex);
+    sem_wait(finish);
     printf("L %d: going to ski\n", id);
     sem_post(cap_available);
 }
@@ -59,21 +60,25 @@ void skibus(params par){
     while(*skiers_left){
         usleep(par.stops_time);
         for(int zastavka=1; zastavka<par.stops+1; zastavka++){
-
             *curr_stop = zastavka;
-            printf("A: BUS: arrival to %d curr_stop %d\n", zastavka, *curr_stop);
-            sem_post(boarding[zastavka]);
-
-            printf("cap_available %d\n", sem_value);
-
-            printf("A: BUS: leaving %d currstop %d\n",zastavka, *curr_stop);
-            *curr_stop = 0;
+            printf("A: BUS: arrival to %d\n", zastavka);
+            while(bus_stops[zastavka] > 0 && sem_value(cap_available) != 0){
+                sem_post(boarding[zastavka]);
+            }
+            printf("A: BUS: leaving %d\n",zastavka);
             usleep(par.stops_time);
         }
-        // tu nieco ze dosiel do ciela tak jebne semafor aby mohli dat lyzovat
+        while(sem_value(cap_available) != par.capacity){
+            sem_post(finish);
         }
     }
     printf("A: BUS: finish\n");
+}
+
+int sem_value(sem_t *sem){
+    int value;
+    sem_getvalue(sem, &value);
+    return value;
 }
 
 struct parameters arg_parsing(int argc, char **argv){
@@ -114,19 +119,19 @@ void map_and_init(params param){
     curr_stop = mmap(NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     skiers_left = mmap(NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     cap_available = mmap(NULL, sizeof(sem_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-    mutex = mmap(NULL, sizeof(sem_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    finish = mmap(NULL, sizeof(sem_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     boarding =mmap(NULL, sizeof(sem_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     all_aboard = mmap(NULL, sizeof(sem_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     
-    for(int i=0; i<param.stops; i++){
+    for(int i=0; i<param.stops+1; i++){
         bus_stops[i] = mmap(NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+        bus_stops[i] = 0;
         boarding[i] = mmap(NULL, sizeof(sem_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
         sem_init(boarding[i], 1, 0);
-        bus_stops[i] = 0;
     }
 
     sem_init(cap_available, 1, param.capacity);
-    sem_init(mutex, 1, 1);
+    sem_init(finish, 1, 1);
     sem_init(boarding, 1, 0);
     sem_init(all_aboard, 1, 0);
 
@@ -157,12 +162,14 @@ int fork_gen(params param){
     }
     return 0;
 }
-void cleanup(){
+void cleanup(params param){
     // Cleanup: Destroy semaphores
     sem_destroy(cap_available);
-    sem_destroy(mutex);
+    sem_destroy(finish);
     sem_destroy(boarding);
-    for(int i=0; i<param.stops; i++){
+    for(int i=0; i<param.stops+1; i++){
+        sem_destroy(bus_stops[i]);
+      //  munmap(bus_stops[i], sizeof(sem_t));
         sem_destroy(boarding[i]);
         munmap(boarding[i], sizeof(sem_t));
     }
@@ -171,7 +178,7 @@ void cleanup(){
     munmap(curr_stop, sizeof(int));
     munmap(skiers_left, sizeof(int));
     munmap(cap_available, sizeof(sem_t));
-    munmap(mutex, sizeof(sem_t));
+    munmap(finish, sizeof(sem_t));
     munmap(boarding, sizeof(sem_t));
     munmap(all_aboard, sizeof(sem_t));
 }
@@ -190,7 +197,7 @@ int main(int argc, char **argv){
     
     while(wait(NULL) > 0);
 
-    cleanup();
+    cleanup(param);
 
     return 0;
 }
