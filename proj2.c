@@ -40,7 +40,7 @@ void skier(pid_t id, params par, shr *shared){
     usleep((rand() % par.waiting_time));
     int stop = rand() % par.stops+1;
     //printf("%d\n", stop);
-    printf("L %d: arrived to %d", id, stop);
+    printf("L %d: arrived to %d\n", id, stop);
     while(shared->curr_stop != stop){
         usleep(1);
     }
@@ -71,7 +71,7 @@ void skibus(params par, shr *shared){
             }
 
             printf("A: BUS: leaving %d\n",zastavka);
-
+            //shared->curr_stop = 0;
             usleep(par.stops_time);
         }
         // tu nieco ze dosiel do ciela tak jebne semafor aby mohli dat lyzovat
@@ -116,6 +116,7 @@ struct parameters arg_parsing(int argc, char **argv){
 
 int main(int argc, char **argv){
     //setbuf(stdout, NULL);
+
     // Parsing arguments
     params param = arg_parsing(argc, argv);
 
