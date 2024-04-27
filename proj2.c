@@ -24,19 +24,18 @@ typedef struct parameters
     int stops_time;
 }params;
 
-int *curr_stop;
-int *skiers_left;
-sem_t *boarding;
-sem_t *cap_available;
-sem_t *finish;
-sem_t *all_aboard;
-
-typedef struct stop_sem{
+struct stop_sem{
     sem_t *sem;
     int stop;
-} stopsm;
+};
 
-stopsm *stops_sem;
+typdef struct shared{
+    sem_t *boarding;
+    sem_t *cap_available;
+    sem_t *finish;
+    struct stop_sem *stops_sem;
+} shared;
+
 
 void skier(pid_t id, params par){
     printf("L %d: started\n", id);
@@ -79,12 +78,6 @@ void skibus(params par){
     printf("A: BUS: finish\n");
 }
 
-int sem_value(sem_t *sem){
-    int value;
-    sem_getvalue(sem, &value);
-    return value;
-}
-
 struct parameters arg_parsing(int argc, char **argv){
     if(argc != 6){
         fprintf(stderr, "Error: Wrong number of arguments\n");
@@ -120,20 +113,23 @@ struct parameters arg_parsing(int argc, char **argv){
 }
 
 void map_and_init(params param){
-    curr_stop = mmap(NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-    skiers_left = mmap(NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-    cap_available = mmap(NULL, sizeof(sem_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-    finish = mmap(NULL, sizeof(sem_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-    boarding =mmap(NULL, sizeof(sem_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-    all_aboard = mmap(NULL, sizeof(sem_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    // curr_stop = mmap(NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    // skiers_left = mmap(NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    // cap_available = mmap(NULL, sizeof(sem_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    // finish = mmap(NULL, sizeof(sem_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    // boarding =mmap(NULL, sizeof(sem_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    shared = mmap(NULL, sizeof(shared), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     
-    for(int i=0; i<param.stops+1; i++){
-        sem_init(stops_sem[i].sem, 1, 0);
+    //stops_sem = mmap(NULL, (param.stops+1) * sizeof(stopsm), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+
+    for(int i=1; i<param.stops+1; i++){
+        sem_init(shared.stops_sem[i].sem, 1, 0);
+        stops_sem[i].stop = 0;
+
     }
 
     sem_init(cap_available, 1, param.capacity);
     sem_init(finish, 1, 1);
-    sem_init(all_aboard, 1, 0);
 
     // Initialization of shared memory
     *curr_stop = 0;
@@ -167,17 +163,17 @@ void cleanup(params param){
     sem_destroy(cap_available);
     sem_destroy(finish);
     sem_destroy(boarding);
-    for(int i=0; i<param.stops+1; i++){
+    for(int i=1; i<param.stops+1; i++){
         sem_destroy(stops_sem[i].sem);
-        munmap(stops_sem[i].sem, sizeof(sem_t));
     }
 
     // Unmap shared memory
+    munmap(stops_sem, (param.stops+1) * sizeof(sem_t));
+    
     munmap(curr_stop, sizeof(int));
     munmap(skiers_left, sizeof(int));
     munmap(cap_available, sizeof(sem_t));
     munmap(finish, sizeof(sem_t));
-    munmap(all_aboard, sizeof(sem_t));
     munmap(boarding, sizeof(sem_t));
 }
 
