@@ -62,7 +62,7 @@ void skibus(params par){
         for(int zastavka=1; zastavka<par.stops+1; zastavka++){
             *curr_stop = zastavka;
             printf("A: BUS: arrival to %d\n", zastavka);
-            while(bus_stops[zastavka] > 0 && sem_value(cap_available) != 0){
+            while((*bus_stops[zastavka] > 0) && (sem_value(cap_available) != 0)){
                 sem_post(boarding[zastavka]);
             }
             printf("A: BUS: leaving %d\n",zastavka);
@@ -132,7 +132,6 @@ void map_and_init(params param){
 
     sem_init(cap_available, 1, param.capacity);
     sem_init(finish, 1, 1);
-    sem_init(boarding, 1, 0);
     sem_init(all_aboard, 1, 0);
 
     // Initialization of shared memory
@@ -168,7 +167,7 @@ void cleanup(params param){
     sem_destroy(finish);
     sem_destroy(boarding);
     for(int i=0; i<param.stops+1; i++){
-        sem_destroy(bus_stops[i]);
+        munmap(bus_stops[i], sizeof(int));
       //  munmap(bus_stops[i], sizeof(sem_t));
         sem_destroy(boarding[i]);
         munmap(boarding[i], sizeof(sem_t));
@@ -179,7 +178,6 @@ void cleanup(params param){
     munmap(skiers_left, sizeof(int));
     munmap(cap_available, sizeof(sem_t));
     munmap(finish, sizeof(sem_t));
-    munmap(boarding, sizeof(sem_t));
     munmap(all_aboard, sizeof(sem_t));
 }
 
