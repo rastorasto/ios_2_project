@@ -44,15 +44,28 @@ int sem_mnau(sem_t *sem){
     sem_getvalue(sem, &val);
     return val;
 }
+void print_sem(){
+    int boarding = sem_mnau(&shared->boarding);
+    int finish = sem_mnau(&shared->finish);
+    int z1_sem = sem_mnau(&shared->bs[1].sem);
+    int z1_co = shared->bs[1].count;
+    int z2_sem = sem_mnau(&shared->bs[2].sem);
+    int z2_co = shared->bs[2].count;
+    int z3_sem = sem_mnau(&shared->bs[3].sem);
+    int z3_co = shared->bs[3].count;
+
+    printf("Boarding: %d Finish: %d Z1: %d/%d Z2: %d/%d Z3: %d/%d\n", boarding, finish, z1_sem, z1_co, z2_sem, z2_co, z3_sem, z3_co);
+
+}
+
 void skier(pid_t id, params par){
     printf("L %d: started\n", id);
     srand(time(NULL)*id);
     usleep((rand() % par.waiting_time));
-    int stop = rand() % par.stops+2;
+    int stop = rand() % par.stops+1;
 
     (shared->bs[stop].count)++; // Increment the number of skiers at the stop
     printf("L %d: arrived to %d\n", id, stop);
-    printf("zzBOARDING: %d , Z1SEM: %d , Z1CO: %d , Z2SEM: %d , Z2CO: %d \n", sem_mnau(&shared->boarding), sem_mnau(&shared->bs[1].sem), shared->bs[1].count,sem_mnau(&shared->bs[2].sem), shared->bs[2].count);
     sem_wait(&shared->bs[stop].sem); // Wait for the bus to arrive
     printf("bus prisiel\n");
     if(shared->cap_available == 0){
@@ -81,6 +94,7 @@ void skibus(params par){
         usleep(par.stops_time);
         for(int zastavka=1; zastavka<par.stops+1; zastavka++){
             printf("A: BUS: arrival to %d\n", zastavka);
+            print_sem();
             if(shared->bs[zastavka].count > 0){
                 printf("na zastavke cakaju chlopi\n");
                 sem_post(&shared->bs[zastavka].sem);
@@ -142,7 +156,7 @@ void map_and_init(params param) {
     }
 
     // Initialize bs array
-    for (int i = 0; i < param.stops; i++) {
+    for (int i = 1; i < param.stops+1; i++) {
         sem_init(&shared->bs[i].sem, 1, 0); // Initialize the semaphore
         shared->bs[i].count = 0;
     }
