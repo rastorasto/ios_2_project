@@ -340,5 +340,5 @@ int main(int argc, char **argv){
     // Odstrani semafory a uvolni zdielanu pamat
     cleanup(param);
 
-    return 0;
+    exit(0);
 }
