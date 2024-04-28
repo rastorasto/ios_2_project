@@ -92,19 +92,31 @@ void print_skibus_start(){
 }
 void print_skibus_arrival(int stop){
     sem_wait(&shared->write);
-    fprintf(file,"%d: A: BUS: arrival to %d\n", shared->lines, stop);
+    fprintf(file,"%d: BUS: arrived to %d\n", shared->lines, stop);
     shared->lines++;
     sem_post(&shared->write);
 }
 void print_skibus_leaving(int stop){
     sem_wait(&shared->write);
-    fprintf(file,"%d: A: BUS: leaving %d\n", shared->lines, stop);
+    fprintf(file,"%d: BUS: leaving %d\n", shared->lines, stop);
     shared->lines++;
     sem_post(&shared->write);
 }
 void print_skibus_finish(){
     sem_wait(&shared->write);
     fprintf(file,"%d: BUS: finish\n", shared->lines);
+    shared->lines++;
+    sem_post(&shared->write);
+}
+void print_skibus_arrived_to_final(){
+    sem_wait(&shared->write);
+    fprintf(file,"%d: BUS: arrived to final\n", shared->lines);
+    shared->lines++;
+    sem_post(&shared->write);
+}
+void print_skibus_leaving_final(){
+    sem_wait(&shared->write);
+    fprintf(file,"%d: BUS: leaving final\n", shared->lines);
     shared->lines++;
     sem_post(&shared->write);
 }
@@ -162,7 +174,9 @@ void skibus(params par){
 
             usleep(par.stops_time);
         }
+        print_skibus_arrived_to_final();
         sem_post(&shared->finish);
+        print_skibus_leaving_final();
     }
     print_skibus_finish();
 
