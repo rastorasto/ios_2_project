@@ -254,8 +254,24 @@ struct parameters arg_parsing(int argc, char **argv){
     return param;
 }
 
-void map_and_init(params param) {
+void cleanup(params param){
+    // Odstrani semafory
+    sem_destroy(&shared->finish);
+    sem_destroy(&shared->boarding);
+    sem_destroy(&shared->bus_empty);
+    sem_destroy(&shared->write);
 
+    for(int i=1; i<param.stops+1; i++){
+        sem_destroy(&shared->bs[i].sem);
+    }
+
+    // Uvolni zdielanu pamat
+    size_t shared_size = sizeof(shr) + sizeof(bus_stop) * (param.stops + 1);
+    munmap(shared, shared_size);
+    
+}
+
+void map_and_init(params param) {
     // Alokuje zdielanu pamat
     size_t shared_size = sizeof(shr) + sizeof(bus_stop) * (param.stops + 1);
     shared = mmap(NULL, shared_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
@@ -308,22 +324,6 @@ void fork_gen(params param){
             exit(1);
         }
     }
-}
-void cleanup(params param){
-    // Odstrani semafory
-    sem_destroy(&shared->finish);
-    sem_destroy(&shared->boarding);
-    sem_destroy(&shared->bus_empty);
-    sem_destroy(&shared->write);
-
-    for(int i=1; i<param.stops+1; i++){
-        sem_destroy(&shared->bs[i].sem);
-    }
-
-    // Uvolni zdielanu pamat
-    size_t shared_size = sizeof(shr) + sizeof(bus_stop) * (param.stops + 1);
-    munmap(shared, shared_size);
-    
 }
 
 int main(int argc, char **argv){
