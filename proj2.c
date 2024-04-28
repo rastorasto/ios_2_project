@@ -91,8 +91,9 @@ void skier_going_to_ski(int id, int capacity){
 
     if(shared->cap_available == capacity){ // If the bus is empty
         sem_post(&shared->bus_empty); // Signal the skiers to go skiing
-    }
-    sem_post(&shared->finish); // Signal anoter skier to go skiing
+    }else {
+        sem_post(&shared->finish); // Signal anoter skier to go skiing
+    } 
     sem_post(&shared->write);
 }
 void print_skibus_start(){
