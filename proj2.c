@@ -186,9 +186,11 @@ void skibus(params par){
             usleep(par.stops_time);
         }
         print_skibus_arrived_to_final();
-        sem_post(&shared->finish);
 
-        sem_wait(&shared->bus_empty); // Wait for all skiers to leave
+        if(shared->cap_available < par.capacity){ // If the bus is not empty
+            sem_post(&shared->finish);
+            sem_wait(&shared->bus_empty); // Wait for all skiers to leave
+        }
 
         print_skibus_leaving_final();
     }
