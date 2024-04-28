@@ -44,24 +44,6 @@ typedef struct shared{
 shr *shared;    // Ukazatel na zdielanuy pamat
 FILE *file;     // Ukazatel na subor
 
-// int sem_mnau(sem_t *sem){
-//     int val;
-//     sem_getvalue(sem, &val);
-//     return val;
-// }
-// void print_sem(){
-//     int boarding = sem_mnau(&shared->boarding);
-//     int finish = sem_mnau(&shared->finish);
-//     int z1_sem = sem_mnau(&shared->bs[1].sem);
-//     int z1_co = shared->bs[1].count;
-//     int z2_sem = sem_mnau(&shared->bs[2].sem);
-//     int z2_co = shared->bs[2].count;
-//     int z3_sem = sem_mnau(&shared->bs[3].sem);
-//     int z3_co = shared->bs[3].count;
-//     int cap = shared->cap_available;
-//     printf("Cap: %d Boarding: %d Finish: %d Z1: %d/%d Z2: %d/%d Z3: %d/%d\n", cap, boarding, finish, z1_sem, z1_co, z2_sem, z2_co, z3_sem, z3_co);
-// }
-
 // Vypise, ze lyziar zacal
 void print_skier_start(int id){
     sem_wait(&shared->write);
@@ -166,8 +148,8 @@ void bus_full_signal(){
 // Ak uz na zastavke nikto nie je, tak moze ist prec
 void last_skier_at_stop(int stop){
     sem_wait(&shared->write);
-    if(shared->bs[stop].count == 0){ // If the last skier at the stop
-        sem_post(&shared->boarding); // Signal the bus to leave
+    if(shared->bs[stop].count == 0){ // Ak uz nikto nie je na zastavke
+        sem_post(&shared->boarding); // Povie autobusu, nech ide prec
     }
     sem_post(&shared->write);
 }
@@ -201,12 +183,15 @@ void skibus(params par){
     print_skibus_start(); // Autobus zacal
     while(shared->skiers_left > 0){ // Kym neodviezol vsetkych lyziarov
         usleep(par.stops_time); // Caka kym pride na zastavku
+
         for(int zastavka=1; zastavka<par.stops+1; zastavka++){
             print_skibus_arrival(zastavka); // Autobus prisiel na zastavku
+
             if(shared->bs[zastavka].count > 0){ // Ak je nejaky lyziar na zastavke
                 sem_post(&shared->bs[zastavka].sem); // Povie lyziarovi nech nastupi
                 sem_wait(&shared->boarding);    // Caka, kym nedostane signal, ze moze ist prec
             }
+
             print_skibus_leaving(zastavka); // Odchadza prec zo zastavky
             usleep(par.stops_time); // Caka kym pride na dalsiu zastavku
         }
@@ -223,13 +208,14 @@ void skibus(params par){
 
 
 struct parameters arg_parsing(int argc, char **argv){
+
     // Ak nie je spravny pocet argumentov ukonci program
     if(argc != 6){
         fprintf(stderr, "Error: Wrong number of arguments\n");
         exit(1);
     }
 
-    // Ullozi argumenty do struktury
+    // Ulozi argumenty do struktury
     params param;
     param.skiers = atoi(argv[1]);
     param.stops = atoi(argv[2]);
@@ -258,6 +244,7 @@ struct parameters arg_parsing(int argc, char **argv){
 }
 
 void map_and_init(params param) {
+
     // Alokuje zdielanu pamat
     size_t shared_size = sizeof(shr) + sizeof(bus_stop) * (param.stops + 1);
     shared = mmap(NULL, shared_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
@@ -291,7 +278,7 @@ void fork_gen(params param){
     // Vytvori proces skibus
     pid_t skibus_pid = fork();
     if(skibus_pid == 0){
-        skibus(param);
+        skibus(param); // Zvola funkciu skibus s argumentami
         exit(0);
     } else if(skibus_pid < 0){
         fprintf(stderr, "Error: Fork failed\n");
@@ -301,7 +288,7 @@ void fork_gen(params param){
     for(int i = 1; i < param.skiers+1; i++){
         pid_t skier_pid = fork();
         if(skier_pid == 0){
-            skier(i, param);
+            skier(i, param); // Zvola funkciu skier s argumentami a id
             exit(0);
         } else if(skier_pid < 0){
             fprintf(stderr, "Error: Fork failed\n");
