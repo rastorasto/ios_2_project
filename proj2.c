@@ -235,8 +235,8 @@ struct parameters arg_parsing(int argc, char **argv){
     param.stops_time = atoi(argv[5]);
 
     // Kontrola argumentov
-    if(param.skiers > 20000){
-        fprintf(stderr, "Error: The number of the skiers cant exceed 20000\n");
+    if(param.skiers > 19999){
+        fprintf(stderr, "Error: The number of the skiers cant exceed 19999\n");
         exit(1);
     } else if (param.stops <= 0 || param.stops > 10){
         fprintf(stderr, "Error: The number of the stops must be between 1 and 10\n");
