@@ -293,6 +293,7 @@ void fork_gen(params param){
         exit(0);
     } else if(skibus_pid < 0){
         fprintf(stderr, "Error: Fork failed\n");
+        cleanup(param);
         exit(1);
     }
     // Vytvori lyziarov
@@ -303,6 +304,7 @@ void fork_gen(params param){
             exit(0);
         } else if(skier_pid < 0){
             fprintf(stderr, "Error: Fork failed\n");
+            cleanup(param);
             exit(1);
         }
     }
