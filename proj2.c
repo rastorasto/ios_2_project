@@ -35,6 +35,7 @@ typedef struct shared{
     sem_t write;
     sem_t boarding;
     sem_t finish;
+    sem_t bus_empty;
     stop_sem bs[];
 } shr;
 
@@ -42,24 +43,24 @@ shr *shared;
 FILE *file;
 
 
-int sem_mnau(sem_t *sem){
-    int val;
-    sem_getvalue(sem, &val);
-    return val;
-}
-void print_sem(){
-    int boarding = sem_mnau(&shared->boarding);
-    int finish = sem_mnau(&shared->finish);
-    int z1_sem = sem_mnau(&shared->bs[1].sem);
-    int z1_co = shared->bs[1].count;
-    int z2_sem = sem_mnau(&shared->bs[2].sem);
-    int z2_co = shared->bs[2].count;
-    int z3_sem = sem_mnau(&shared->bs[3].sem);
-    int z3_co = shared->bs[3].count;
+// int sem_mnau(sem_t *sem){
+//     int val;
+//     sem_getvalue(sem, &val);
+//     return val;
+// }
+// void print_sem(){
+//     int boarding = sem_mnau(&shared->boarding);
+//     int finish = sem_mnau(&shared->finish);
+//     int z1_sem = sem_mnau(&shared->bs[1].sem);
+//     int z1_co = shared->bs[1].count;
+//     int z2_sem = sem_mnau(&shared->bs[2].sem);
+//     int z2_co = shared->bs[2].count;
+//     int z3_sem = sem_mnau(&shared->bs[3].sem);
+//     int z3_co = shared->bs[3].count;
+//     int cap = shared->cap_available;
+//     printf("Cap: %d Boarding: %d Finish: %d Z1: %d/%d Z2: %d/%d Z3: %d/%d\n", cap, boarding, finish, z1_sem, z1_co, z2_sem, z2_co, z3_sem, z3_co);
+// }
 
-    printf("Boarding: %d Finish: %d Z1: %d/%d Z2: %d/%d Z3: %d/%d\n", boarding, finish, z1_sem, z1_co, z2_sem, z2_co, z3_sem, z3_co);
-
-}
 void print_skier_start(int id){
     sem_wait(&shared->write);
     fprintf(file,"%d: L %d: started\n", shared->lines, id);
@@ -68,20 +69,30 @@ void print_skier_start(int id){
 }
 void print_skier_arrived(int id, int stop){
     sem_wait(&shared->write);
+    shared->bs[stop].count++; // Increment the number of skiers at the stop
     fprintf(file,"%d: L %d: arrived to %d\n", shared->lines, id, stop);
     shared->lines++;
     sem_post(&shared->write);
 }
-void print_skier_boarding(int id){
+void print_skier_boarding(int id, int stop){
     sem_wait(&shared->write);
     fprintf(file,"%d: L %d: boarding\n", shared->lines, id);
     shared->lines++;
+    shared->cap_available--;    // Remove one seat from the capacity
+    shared->bs[stop].count--; // Decrement the number of skiers at the stop
     sem_post(&shared->write);
 }
-void print_skier_going_to_ski(int id){
+void skier_going_to_ski(int id, int capacity){
     sem_wait(&shared->write);
     fprintf(file,"%d: L %d: going to ski\n", shared->lines, id);
     shared->lines++;
+    shared->skiers_left--; // Decrement the number of skiers left
+    shared->cap_available++; // Free the seat
+
+    if(shared->cap_available == capacity){ // If the bus is empty
+        sem_post(&shared->bus_empty); // Signal the skiers to go skiing
+    }
+    sem_post(&shared->finish); // Signal anoter skier to go skiing
     sem_post(&shared->write);
 }
 void print_skibus_start(){
@@ -120,6 +131,20 @@ void print_skibus_leaving_final(){
     shared->lines++;
     sem_post(&shared->write);
 }
+void bus_full_signal(){
+    sem_wait(&shared->write);
+    if(shared->cap_available == 0){
+        sem_post(&shared->boarding); // If the bus is full, signal the bus to leave
+    }
+    sem_post(&shared->write);
+}
+void last_skier_at_stop(int stop){
+    sem_wait(&shared->write);
+    if(shared->bs[stop].count == 0){ // If the last skier at the stop
+        sem_post(&shared->boarding); // Signal the bus to leave
+    }
+    sem_post(&shared->write);
+}
 
 void skier(pid_t id, params par){
     print_skier_start(id);
@@ -128,39 +153,22 @@ void skier(pid_t id, params par){
     usleep((rand() % par.waiting_time));
     int stop = rand() % par.stops+1;
 
-    sem_wait(&shared->write);
-    (shared->bs[stop].count)++; // Increment the number of skiers at the stop
-    sem_post(&shared->write);
-
     print_skier_arrived(id, stop);
 
     sem_wait(&shared->bs[stop].sem); // Wait for the bus to arrive
-   // printf("bus prisiel\n");
-    if(shared->cap_available == 0){
-        sem_post(&shared->boarding); // If the bus is full, signal the bus to leave
-    }
-    print_skier_boarding(id);
-    
-    sem_wait(&shared->write);
-    (shared->cap_available)--;    // Remove one seat from the capacity
-    shared->bs[stop].count--; // Decrement the number of skiers at the stop
-    sem_post(&shared->write);
 
-   // printf("pusti dalsieho nastupit\n");
-    sem_post(&shared->bs[stop].sem);         // Allows another skier to board
-    if(shared->bs[stop].count == 0){ // If the last skier at the stop
-     //   printf("nech ide bus do pici\n");
-        sem_post(&shared->boarding); // Signal the bus to leave
-    }
+    bus_full_signal();
+
+    print_skier_boarding(id, stop);
+    
+    sem_post(&shared->bs[stop].sem); // Allows another skier to board
+
+    last_skier_at_stop(stop);
 
     sem_wait(&shared->finish); // If at finish go to ski :)
     
-    print_skier_going_to_ski(id);
+    skier_going_to_ski(id, par.capacity);
 
-    sem_wait(&shared->write);
-    (shared->skiers_left)--; // Decrement the number of skiers left
-    (shared->cap_available)++; // Free the seat
-    sem_post(&shared->write);
 }
 
 void skibus(params par){
@@ -169,25 +177,21 @@ void skibus(params par){
         usleep(par.stops_time);
         for(int zastavka=1; zastavka<par.stops+1; zastavka++){
             print_skibus_arrival(zastavka);
-           // print_sem();
             if(shared->bs[zastavka].count > 0){
-                //printf("na zastavke cakaju chlopi\n");
                 sem_post(&shared->bs[zastavka].sem);
-               // printf("bus caka kym nastupi posledny chlop\n");
                 sem_wait(&shared->boarding);
-            }else {
-                //printf("na zastavke nikto necaka\n");
             }
             print_skibus_leaving(zastavka);
-
             usleep(par.stops_time);
         }
         print_skibus_arrived_to_final();
         sem_post(&shared->finish);
+
+        sem_wait(&shared->bus_empty); // Wait for all skiers to leave
+
         print_skibus_leaving_final();
     }
     print_skibus_finish();
-
 }
 
 
@@ -248,6 +252,7 @@ void map_and_init(params param) {
     // Initialize semaphores
     sem_init(&shared->write, 1, 1);
     sem_init(&shared->boarding, 1, 0);
+    sem_init(&shared->bus_empty, 1, 0);
     sem_init(&shared->finish, 1, 0);
 }
 
@@ -307,8 +312,6 @@ int main(int argc, char **argv){
     fork_gen(param);
 
     while(wait(NULL) > 0);
-//    fprintf(stderr, "ID2: %d\n", getpid());
- //   fprintf(stderr, "Error: pico failed\n");
     cleanup(param);
 
     return 0;

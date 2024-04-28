@@ -17,7 +17,7 @@ run: proj2
 	./kontrola-vystupu.sh
 
 clean:
-	rm -f proj2 proj2.o proj2.zip
+	rm -f proj2 proj2.o proj2.zip proj2.out
 
 zip:
 	zip proj2.zip *.c *.h Makefile
