@@ -13,9 +13,6 @@ proj2.o: proj2.c
 proj2: proj2.o
 	$(CC) $(CFLAGS) proj2.o -o proj2 -lpthread
 
-run: proj2
-	./kontrola-vystupu.sh
-
 clean:
 	rm -f proj2 proj2.o proj2.zip proj2.out
 
