@@ -128,7 +128,10 @@ void skier(pid_t id, params par){
     usleep((rand() % par.waiting_time));
     int stop = rand() % par.stops+1;
 
+    sem_wait(&shared->write);
     (shared->bs[stop].count)++; // Increment the number of skiers at the stop
+    sem_post(&shared->write);
+
     print_skier_arrived(id, stop);
 
     sem_wait(&shared->bs[stop].sem); // Wait for the bus to arrive
@@ -138,8 +141,11 @@ void skier(pid_t id, params par){
     }
     print_skier_boarding(id);
     
+    sem_wait(&shared->write);
     (shared->cap_available)--;    // Remove one seat from the capacity
     shared->bs[stop].count--; // Decrement the number of skiers at the stop
+    sem_post(&shared->write);
+
    // printf("pusti dalsieho nastupit\n");
     sem_post(&shared->bs[stop].sem);         // Allows another skier to board
     if(shared->bs[stop].count == 0){ // If the last skier at the stop
@@ -151,8 +157,10 @@ void skier(pid_t id, params par){
     
     print_skier_going_to_ski(id);
 
+    sem_wait(&shared->write);
     (shared->skiers_left)--; // Decrement the number of skiers left
     (shared->cap_available)++; // Free the seat
+    sem_post(&shared->write);
 }
 
 void skibus(params par){
