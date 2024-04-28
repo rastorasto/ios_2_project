@@ -31,12 +31,15 @@ typedef struct stop_sem{
 typedef struct shared{
     int skiers_left;
     int cap_available;
+    int lines;
+    sem_t write;
     sem_t boarding;
     sem_t finish;
     stop_sem bs[];
 } shr;
 
 shr *shared;
+FILE *file;
 
 
 int sem_mnau(sem_t *sem){
@@ -57,58 +60,112 @@ void print_sem(){
     printf("Boarding: %d Finish: %d Z1: %d/%d Z2: %d/%d Z3: %d/%d\n", boarding, finish, z1_sem, z1_co, z2_sem, z2_co, z3_sem, z3_co);
 
 }
+void print_skier_start(int id){
+    sem_wait(&shared->write);
+    fprintf(file,"%d: L %d: started\n", shared->lines, id);
+    shared->lines++;
+    sem_post(&shared->write);
+}
+void print_skier_arrived(int id, int stop){
+    sem_wait(&shared->write);
+    fprintf(file,"%d: L %d: arrived to %d\n", shared->lines, id, stop);
+    shared->lines++;
+    sem_post(&shared->write);
+}
+void print_skier_boarding(int id){
+    sem_wait(&shared->write);
+    fprintf(file,"%d: L %d: boarding\n", shared->lines, id);
+    shared->lines++;
+    sem_post(&shared->write);
+}
+void print_skier_going_to_ski(int id){
+    sem_wait(&shared->write);
+    fprintf(file,"%d: L %d: going to ski\n", shared->lines, id);
+    shared->lines++;
+    sem_post(&shared->write);
+}
+void print_skibus_start(){
+    sem_wait(&shared->write);
+    fprintf(file,"%d: BUS: started\n", shared->lines);
+    shared->lines++;
+    sem_post(&shared->write);
+}
+void print_skibus_arrival(int stop){
+    sem_wait(&shared->write);
+    fprintf(file,"%d: A: BUS: arrival to %d\n", shared->lines, stop);
+    shared->lines++;
+    sem_post(&shared->write);
+}
+void print_skibus_leaving(int stop){
+    sem_wait(&shared->write);
+    fprintf(file,"%d: A: BUS: leaving %d\n", shared->lines, stop);
+    shared->lines++;
+    sem_post(&shared->write);
+}
+void print_skibus_finish(){
+    sem_wait(&shared->write);
+    fprintf(file,"%d: BUS: finish\n", shared->lines);
+    shared->lines++;
+    sem_post(&shared->write);
+}
 
 void skier(pid_t id, params par){
-    printf("L %d: started\n", id);
+    print_skier_start(id);
+
     srand(time(NULL)*id);
     usleep((rand() % par.waiting_time));
     int stop = rand() % par.stops+1;
 
     (shared->bs[stop].count)++; // Increment the number of skiers at the stop
-    printf("L %d: arrived to %d\n", id, stop);
+    print_skier_arrived(id, stop);
+
     sem_wait(&shared->bs[stop].sem); // Wait for the bus to arrive
-    printf("bus prisiel\n");
+   // printf("bus prisiel\n");
     if(shared->cap_available == 0){
         sem_post(&shared->boarding); // If the bus is full, signal the bus to leave
     }
-
-    printf("L %d: boarding\n", id);
+    print_skier_boarding(id);
+    
     (shared->cap_available)--;    // Remove one seat from the capacity
     shared->bs[stop].count--; // Decrement the number of skiers at the stop
-    printf("pusti dalsieho nastupit\n");
+   // printf("pusti dalsieho nastupit\n");
     sem_post(&shared->bs[stop].sem);         // Allows another skier to board
     if(shared->bs[stop].count == 0){ // If the last skier at the stop
-        printf("nech ide bus do pici\n");
+     //   printf("nech ide bus do pici\n");
         sem_post(&shared->boarding); // Signal the bus to leave
     }
 
     sem_wait(&shared->finish); // If at finish go to ski :)
-    printf("L %d: going to ski\n", id);
+    
+    print_skier_going_to_ski(id);
+
     (shared->skiers_left)--; // Decrement the number of skiers left
     (shared->cap_available)++; // Free the seat
 }
 
 void skibus(params par){
-    printf("BUS: started\n");
+    print_skibus_start();
     while(shared->skiers_left > 0){
         usleep(par.stops_time);
         for(int zastavka=1; zastavka<par.stops+1; zastavka++){
-            printf("A: BUS: arrival to %d\n", zastavka);
-            print_sem();
+            print_skibus_arrival(zastavka);
+           // print_sem();
             if(shared->bs[zastavka].count > 0){
-                printf("na zastavke cakaju chlopi\n");
+                //printf("na zastavke cakaju chlopi\n");
                 sem_post(&shared->bs[zastavka].sem);
-                printf("bus caka kym nastupi posledny chlop\n");
+               // printf("bus caka kym nastupi posledny chlop\n");
                 sem_wait(&shared->boarding);
             }else {
-                printf("na zastavke nikto necaka\n");
+                //printf("na zastavke nikto necaka\n");
             }
-            printf("A: BUS: leaving %d\n",zastavka);
+            print_skibus_leaving(zastavka);
+
             usleep(par.stops_time);
         }
         sem_post(&shared->finish);
     }
-    printf("A: BUS: finish\n");
+    print_skibus_finish();
+
 }
 
 
@@ -164,8 +221,10 @@ void map_and_init(params param) {
     // Initialize other components
     shared->skiers_left = param.skiers;
     shared->cap_available = param.capacity;
+    shared->lines = 1;
 
     // Initialize semaphores
+    sem_init(&shared->write, 1, 1);
     sem_init(&shared->boarding, 1, 0);
     sem_init(&shared->finish, 1, 0);
 }
@@ -185,8 +244,8 @@ void fork_gen(params param){
         pid_t skier_pid = fork();
         if(skier_pid == 0){
             skier(i, param);
-            printf("lyzar skonci\n");
-            fprintf(stderr, "ID1: %d\n", getpid());
+           // printf("lyzar skonci\n");
+           // fprintf(stderr, "ID1: %d\n", getpid());
             exit(0);
         } else if(skier_pid < 0){
             fprintf(stderr, "Error: Fork failed\n");
@@ -209,9 +268,15 @@ void cleanup(params param){
 }
 
 int main(int argc, char **argv){
+
+    file = fopen("proj2.out", "w");
+    if(file == NULL){
+        fprintf(stderr, "Error: File failed to open\n");
+        exit(1);
+    }
+    setbuf(file, NULL);
     setbuf(stdout, NULL);
     setbuf(stderr, NULL);
-
     // Parsing arguments
     params param = arg_parsing(argc, argv);
 
@@ -220,8 +285,8 @@ int main(int argc, char **argv){
     fork_gen(param);
 
     while(wait(NULL) > 0);
-    fprintf(stderr, "ID2: %d\n", getpid());
-    fprintf(stderr, "Error: pico failed\n");
+//    fprintf(stderr, "ID2: %d\n", getpid());
+ //   fprintf(stderr, "Error: pico failed\n");
     cleanup(param);
 
     return 0;
