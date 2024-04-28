@@ -129,10 +129,12 @@ void print_skibus_leaving_final(){
 }
 
 // Ak je autobus plny, tak moze ist prec
-void bus_full_signal(){
+void bus_full_signal(int stop){
     sem_wait(&shared->write);
     if(shared->cap_available == 0){
         sem_post(&shared->boarding);
+    } else {
+        sem_post(&shared->bs[stop].sem); // Povie dalsiemu lyziarovi, ze moze nastupit   
     }
     sem_post(&shared->write);
 }
@@ -157,11 +159,9 @@ void skier(pid_t id, params par){
 
     sem_wait(&shared->bs[stop].sem); // Caka, kym pride skibus
 
-    bus_full_signal(); // Ked je autobus plny, povie mu, aby isiel prec
-
     print_skier_boarding(id, stop); // Nastupi do autobusu
     
-    sem_post(&shared->bs[stop].sem); // Povie dalsiemu lyziarovi, ze moze nastupit
+    bus_full_signal(stop); // Ked je autobus plny, povie mu, aby isiel prec
 
     last_skier_at_stop(stop); // Ak uz na zastavke nikto nie je, povie autobusu, aby isiel prec
 
