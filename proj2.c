@@ -96,14 +96,6 @@ void print_skibus_start(){
     sem_post(&shared->write);
 }
 
-// Autobus pride na zastavku
-void print_skibus_arrival(int stop){
-    sem_wait(&shared->write);
-    fprintf(file,"%d: BUS: arrived to %d\n", shared->lines, stop);
-    shared->lines++;
-    sem_post(&shared->write);
-}
-
 // Autobus odchadza zo zastavky
 void print_skibus_leaving(int stop){
     sem_wait(&shared->write);
@@ -179,20 +171,39 @@ void skier(pid_t id, params par){
 
 }
 
+// Autobus pride na zastavku
+void print_skibus_arrival(int stop){
+    sem_wait(&shared->write);
+    fprintf(file,"%d: BUS: arrived to %d\n", shared->lines, stop);
+    shared->lines++;
+    sem_post(&shared->write);
+}
+
+// Kontrola ci ma kapacitu a ci su na zastavke lyziari
+void doors_open(int bus_stop_id){
+    sem_wait(&shared->write);
+    // Zistim stav pre if
+    int can_board = (shared->bs[bus_stop_id].count > 0 && shared->cap_available > 0);
+    sem_post(&shared->write);
+
+    if(can_board){ // Ak je nejaky lyziar na zastavke a ma autobus kapacitu
+        sem_post(&shared->bs[bus_stop_id].sem); // Povie lyziarovi nech nastupi
+        sem_wait(&shared->boarding);    // Caka, kym nedostane signal, ze moze ist prec
+    }
+}
+
 void skibus(params par){
     print_skibus_start(); // Autobus zacal
     while(shared->skiers_left > 0){ // Kym neodviezol vsetkych lyziarov
         usleep(par.stops_time); // Caka kym pride na zastavku
 
-        for(int zastavka=1; zastavka<par.stops+1; zastavka++){
-            print_skibus_arrival(zastavka); // Autobus prisiel na zastavku
+        for(int bus_stop_id=1; bus_stop_id<par.stops+1; bus_stop_id++){
+            print_skibus_arrival(bus_stop_id); // Autobus prisiel na zastavku
 
-            if(shared->bs[zastavka].count > 0){ // Ak je nejaky lyziar na zastavke
-                sem_post(&shared->bs[zastavka].sem); // Povie lyziarovi nech nastupi
-                sem_wait(&shared->boarding);    // Caka, kym nedostane signal, ze moze ist prec
-            }
+            doors_open(bus_stop_id); // Kontrola ci ma kapacitu a ci su na zastavke lyziari
 
-            print_skibus_leaving(zastavka); // Odchadza prec zo zastavky
+            print_skibus_leaving(bus_stop_id); // Odchadza prec zo zastavky
+
             usleep(par.stops_time); // Caka kym pride na dalsiu zastavku
         }
         print_skibus_arrived_to_final(); // Autobus prisiel do ciela
