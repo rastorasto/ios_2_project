@@ -327,6 +327,7 @@ void fork_gen(params param){
 }
 
 int main(int argc, char **argv){
+    
     // Nastavi subor na vypis
     file = fopen("proj2.out", "w");
     if(file == NULL){
