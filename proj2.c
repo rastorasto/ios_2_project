@@ -255,6 +255,7 @@ struct parameters arg_parsing(int argc, char **argv){
 }
 
 void cleanup(params param){
+    
     // Odstrani semafory
     sem_destroy(&shared->finish);
     sem_destroy(&shared->boarding);
@@ -327,7 +328,7 @@ void fork_gen(params param){
 }
 
 int main(int argc, char **argv){
-    
+
     // Nastavi subor na vypis
     file = fopen("proj2.out", "w");
     if(file == NULL){
